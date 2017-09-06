@@ -37,12 +37,12 @@ func (ap ArrayPositions) Equals(other ArrayPositions) bool {
 
 type Location struct {
 	// Pos is the position of the term within the field, starting at 1
-	Pos            uint64         `json:"pos"`
-	
+	Pos uint64 `json:"pos"`
+
 	// Start and End are the byte offsets of the term in the field
-	Start          uint64         `json:"start"`
-	End            uint64         `json:"end"`
-	
+	Start uint64 `json:"start"`
+	End   uint64 `json:"end"`
+
 	// ArrayPositions contains the positions of the term within any elements.
 	ArrayPositions ArrayPositions `json:"array_positions"`
 }
@@ -142,6 +142,7 @@ type Searcher interface {
 type SearcherOptions struct {
 	Explain            bool
 	IncludeTermVectors bool
+	DisableIDFScoring  bool
 }
 
 // SearchContext represents the context around a single search

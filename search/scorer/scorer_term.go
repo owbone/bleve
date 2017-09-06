@@ -37,25 +37,30 @@ type TermQueryScorer struct {
 }
 
 func NewTermQueryScorer(queryTerm []byte, queryField string, queryBoost float64, docTotal, docTerm uint64, options search.SearcherOptions) *TermQueryScorer {
-	rv := TermQueryScorer{
-		queryTerm:   queryTerm,
-		queryField:  queryField,
-		queryBoost:  queryBoost,
-		docTerm:     docTerm,
-		docTotal:    docTotal,
-		idf:         1.0 + math.Log(float64(docTotal)/float64(docTerm+1.0)),
-		options:     options,
-		queryWeight: 1.0,
-	}
+	var idf = 1.0
+	var idfExplanation *search.Explanation
+	if !options.DisableIDFScoring {
+		idf = 1.0 + math.Log(float64(docTotal)/float64(docTerm+1.0))
 
-	if options.Explain {
-		rv.idfExplanation = &search.Explanation{
-			Value:   rv.idf,
-			Message: fmt.Sprintf("idf(docFreq=%d, maxDocs=%d)", docTerm, docTotal),
+		if options.Explain {
+			idfExplanation = &search.Explanation{
+				Value:   idf,
+				Message: fmt.Sprintf("idf(docFreq=%d, maxDocs=%d)", docTerm, docTotal),
+			}
 		}
 	}
 
-	return &rv
+	return &TermQueryScorer{
+		queryTerm:      queryTerm,
+		queryField:     queryField,
+		queryBoost:     queryBoost,
+		docTerm:        docTerm,
+		docTotal:       docTotal,
+		idf:            idf,
+		options:        options,
+		idfExplanation: idfExplanation,
+		queryWeight:    1.0,
+	}
 }
 
 func (s *TermQueryScorer) Weight() float64 {
@@ -70,16 +75,18 @@ func (s *TermQueryScorer) SetQueryNorm(qnorm float64) {
 	s.queryWeight = s.queryBoost * s.idf * s.queryNorm
 
 	if s.options.Explain {
-		childrenExplanations := make([]*search.Explanation, 3)
-		childrenExplanations[0] = &search.Explanation{
+		childrenExplanations := make([]*search.Explanation, 0, 3)
+		childrenExplanations = append(childrenExplanations, &search.Explanation{
 			Value:   s.queryBoost,
 			Message: "boost",
+		})
+		if s.idfExplanation != nil {
+			childrenExplanations = append(childrenExplanations, s.idfExplanation)
 		}
-		childrenExplanations[1] = s.idfExplanation
-		childrenExplanations[2] = &search.Explanation{
+		childrenExplanations = append(childrenExplanations, &search.Explanation{
 			Value:   s.queryNorm,
 			Message: "queryNorm",
-		}
+		})
 		s.queryWeightExplanation = &search.Explanation{
 			Value:    s.queryWeight,
 			Message:  fmt.Sprintf("queryWeight(%s:%s^%f), product of:", s.queryField, string(s.queryTerm), s.queryBoost),
@@ -101,16 +108,18 @@ func (s *TermQueryScorer) Score(ctx *search.SearchContext, termMatch *index.Term
 	score := tf * termMatch.Norm * s.idf
 
 	if s.options.Explain {
-		childrenExplanations := make([]*search.Explanation, 3)
-		childrenExplanations[0] = &search.Explanation{
+		childrenExplanations := make([]*search.Explanation, 0, 3)
+		childrenExplanations = append(childrenExplanations, &search.Explanation{
 			Value:   tf,
 			Message: fmt.Sprintf("tf(termFreq(%s:%s)=%d", s.queryField, string(s.queryTerm), termMatch.Freq),
-		}
-		childrenExplanations[1] = &search.Explanation{
+		})
+		childrenExplanations = append(childrenExplanations, &search.Explanation{
 			Value:   termMatch.Norm,
 			Message: fmt.Sprintf("fieldNorm(field=%s, doc=%s)", s.queryField, termMatch.ID),
+		})
+		if s.idfExplanation != nil {
+			childrenExplanations = append(childrenExplanations, s.idfExplanation)
 		}
-		childrenExplanations[2] = s.idfExplanation
 		scoreExplanation = &search.Explanation{
 			Value:    score,
 			Message:  fmt.Sprintf("fieldWeight(%s:%s in %s), product of:", s.queryField, string(s.queryTerm), termMatch.ID),

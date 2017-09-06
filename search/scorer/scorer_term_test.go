@@ -254,3 +254,66 @@ func TestTermScorerWithQueryNorm(t *testing.T) {
 	}
 
 }
+
+func TestTermScorerWithoutIDF(t *testing.T) {
+
+	var docTotal uint64 = 100
+	var docTerm uint64 = 9
+	var queryTerm = []byte("beer")
+	var queryField = "desc"
+	var queryBoost = 3.0
+	scorer := NewTermQueryScorer(queryTerm, queryField, queryBoost, docTotal, docTerm, search.SearcherOptions{
+		Explain:           true,
+		DisableIDFScoring: true,
+	})
+
+	expectedQueryWeight := 9.0
+	actualQueryWeight := scorer.Weight()
+	if expectedQueryWeight != actualQueryWeight {
+		t.Errorf("expected query weight %f, got %f", expectedQueryWeight, actualQueryWeight)
+	}
+
+	tests := []struct {
+		termMatch *index.TermFieldDoc
+		result    *search.DocumentMatch
+	}{
+		{
+			termMatch: &index.TermFieldDoc{
+				ID:   index.IndexInternalID("one"),
+				Freq: 1,
+				Norm: 1.0,
+			},
+			result: &search.DocumentMatch{
+				IndexInternalID: index.IndexInternalID("one"),
+				Score:           math.Sqrt(1.0),
+				Sort:            []string{},
+				Expl: &search.Explanation{
+					Value:   math.Sqrt(1.0),
+					Message: "fieldWeight(desc:beer in one), product of:",
+					Children: []*search.Explanation{
+						{
+							Value:   1,
+							Message: "tf(termFreq(desc:beer)=1",
+						},
+						{
+							Value:   1,
+							Message: "fieldNorm(field=desc, doc=one)",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		ctx := &search.SearchContext{
+			DocumentMatchPool: search.NewDocumentMatchPool(1, 0),
+		}
+		actual := scorer.Score(ctx, test.termMatch)
+
+		if !reflect.DeepEqual(actual, test.result) {
+			t.Errorf("expected %#v got %#v for %#v", test.result, actual, test.termMatch)
+		}
+	}
+
+}
